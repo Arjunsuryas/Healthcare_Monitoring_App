@@ -1,0 +1,556 @@
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Alert,
+  TextInput,
+  Modal,
+} from 'react-native';
+import { User, Settings, Bell, Heart, Shield, Download, Phone, CreditCard as Edit, Save } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+interface UserProfile {
+  name: string;
+  age: string;
+  emergencyContact: string;
+  medicalConditions: string;
+  medications: string;
+}
+
+export default function ProfileScreen() {
+  const [profile, setProfile] = useState<UserProfile>({
+    name: '',
+    age: '',
+    emergencyContact: '',
+    medicalConditions: '',
+    medications: '',
+  });
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editProfile, setEditProfile] = useState<UserProfile>(profile);
+
+  useEffect(() => {
+    loadProfile();
+  }, []);
+
+  const loadProfile = async () => {
+    try {
+      const data = await AsyncStorage.getItem('userProfile');
+      if (data) {
+        const loadedProfile = JSON.parse(data);
+        setProfile(loadedProfile);
+        setEditProfile(loadedProfile);
+      }
+    } catch (error) {
+      console.log('Error loading profile:', error);
+    }
+  };
+
+  const saveProfile = async () => {
+    try {
+      await AsyncStorage.setItem('userProfile', JSON.stringify(editProfile));
+      setProfile(editProfile);
+      setShowEditModal(false);
+      Alert.alert('Success', 'Profile updated successfully!');
+    } catch (error) {
+      console.log('Error saving profile:', error);
+      Alert.alert('Error', 'Failed to save profile');
+    }
+  };
+
+  const exportData = async () => {
+    try {
+      const healthData = await AsyncStorage.getItem('healthData');
+      const heartReadings = await AsyncStorage.getItem('heartReadings');
+      const mentalEntries = await AsyncStorage.getItem('mentalEntries');
+      const sleepEntries = await AsyncStorage.getItem('sleepEntries');
+      const userProfile = await AsyncStorage.getItem('userProfile');
+
+      const exportData = {
+        profile: userProfile ? JSON.parse(userProfile) : {},
+        health: healthData ? JSON.parse(healthData) : {},
+        heartReadings: heartReadings ? JSON.parse(heartReadings) : [],
+        mentalEntries: mentalEntries ? JSON.parse(mentalEntries) : [],
+        sleepEntries: sleepEntries ? JSON.parse(sleepEntries) : [],
+        exportDate: new Date().toISOString(),
+      };
+
+      // In a real app, this would save to files or share via email
+      Alert.alert(
+        'Data Export',
+        `Your health data has been prepared for export. Total records: ${
+          exportData.heartReadings.length + 
+          exportData.mentalEntries.length + 
+          exportData.sleepEntries.length
+        }`,
+        [
+          { text: 'OK', style: 'default' },
+          { 
+            text: 'Email to Doctor', 
+            onPress: () => Alert.alert('Feature', 'Email integration coming soon!')
+          },
+        ]
+      );
+    } catch (error) {
+      Alert.alert('Error', 'Failed to export data');
+    }
+  };
+
+  const clearAllData = () => {
+    Alert.alert(
+      'Clear All Data',
+      'This will permanently delete all your health records. This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete All',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await AsyncStorage.multiRemove([
+                'healthData',
+                'heartReadings',
+                'mentalEntries',
+                'sleepEntries',
+              ]);
+              Alert.alert('Success', 'All health data has been cleared');
+            } catch (error) {
+              Alert.alert('Error', 'Failed to clear data');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const ProfileField = ({ label, value, icon: Icon }: { label: string; value: string; icon: React.ComponentType<any> }) => (
+    <View style={styles.profileField}>
+      <Icon size={20} color="#6B7280" />
+      <View style={styles.fieldContent}>
+        <Text style={styles.fieldLabel}>{label}</Text>
+        <Text style={styles.fieldValue}>{value || 'Not set'}</Text>
+      </View>
+    </View>
+  );
+
+  const SettingsItem = ({ 
+    title, 
+    description, 
+    icon: Icon, 
+    onPress,
+    color = '#6B7280' 
+  }: { 
+    title: string; 
+    description: string; 
+    icon: React.ComponentType<any>; 
+    onPress: () => void;
+    color?: string;
+  }) => (
+    <TouchableOpacity style={styles.settingsItem} onPress={onPress}>
+      <View style={styles.settingsIcon}>
+        <Icon size={20} color={color} />
+      </View>
+      <View style={styles.settingsContent}>
+        <Text style={styles.settingsTitle}>{title}</Text>
+        <Text style={styles.settingsDescription}>{description}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+
+  return (
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      {/* Header */}
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.title}>Profile</Text>
+          <Text style={styles.subtitle}>Manage your health profile</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.editButton}
+          onPress={() => setShowEditModal(true)}
+        >
+          <Edit size={20} color="#FFFFFF" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Profile Information */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Personal Information</Text>
+        <View style={styles.profileCard}>
+          <ProfileField label="Name" value={profile.name} icon={User} />
+          <ProfileField label="Age" value={profile.age} icon={User} />
+          <ProfileField label="Emergency Contact" value={profile.emergencyContact} icon={Phone} />
+        </View>
+      </View>
+
+      {/* Medical Information */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Medical Information</Text>
+        <View style={styles.profileCard}>
+          <ProfileField label="Medical Conditions" value={profile.medicalConditions} icon={Heart} />
+          <ProfileField label="Current Medications" value={profile.medications} icon={Shield} />
+        </View>
+      </View>
+
+      {/* Settings */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Settings</Text>
+        <View style={styles.settingsCard}>
+          <SettingsItem
+            title="Export Health Data"
+            description="Download your health records for medical consultations"
+            icon={Download}
+            onPress={exportData}
+            color="#3B82F6"
+          />
+          
+          <SettingsItem
+            title="Notifications"
+            description="Manage health reminders and alerts"
+            icon={Bell}
+            onPress={() => Alert.alert('Coming Soon', 'Notification settings will be available soon!')}
+          />
+          
+          <SettingsItem
+            title="Privacy & Security"
+            description="Manage your data privacy settings"
+            icon={Shield}
+            onPress={() => Alert.alert('Coming Soon', 'Privacy settings will be available soon!')}
+          />
+          
+          <SettingsItem
+            title="Clear All Data"
+            description="Permanently delete all health records"
+            icon={Settings}
+            onPress={clearAllData}
+            color="#EF4444"
+          />
+        </View>
+      </View>
+
+      {/* Health Summary */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Health Summary</Text>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryText}>
+            HealthGuard helps you monitor your cardiovascular health, mental wellbeing, and sleep patterns. 
+            Regular monitoring can help detect early signs of health issues and improve your overall quality of life.
+          </Text>
+          <View style={styles.disclaimer}>
+            <Text style={styles.disclaimerText}>
+              ⚠️ This app is for health monitoring purposes only and does not replace professional medical advice. 
+              Always consult with healthcare providers for medical concerns.
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Edit Profile Modal */}
+      <Modal visible={showEditModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Edit Profile</Text>
+            
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Name</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={editProfile.name}
+                  onChangeText={(text) => setEditProfile({ ...editProfile, name: text })}
+                  placeholder="Enter your name"
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Age</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={editProfile.age}
+                  onChangeText={(text) => setEditProfile({ ...editProfile, age: text })}
+                  placeholder="Enter your age"
+                  keyboardType="numeric"
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Emergency Contact</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={editProfile.emergencyContact}
+                  onChangeText={(text) => setEditProfile({ ...editProfile, emergencyContact: text })}
+                  placeholder="Enter emergency contact number"
+                  keyboardType="phone-pad"
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Medical Conditions</Text>
+                <TextInput
+                  style={styles.textArea}
+                  value={editProfile.medicalConditions}
+                  onChangeText={(text) => setEditProfile({ ...editProfile, medicalConditions: text })}
+                  placeholder="List any medical conditions"
+                  multiline
+                  numberOfLines={3}
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Current Medications</Text>
+                <TextInput
+                  style={styles.textArea}
+                  value={editProfile.medications}
+                  onChangeText={(text) => setEditProfile({ ...editProfile, medications: text })}
+                  placeholder="List current medications"
+                  multiline
+                  numberOfLines={3}
+                />
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => {
+                  setShowEditModal(false);
+                  setEditProfile(profile);
+                }}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity style={styles.saveButton} onPress={saveProfile}>
+                <Save size={20} color="#FFFFFF" />
+                <Text style={styles.saveButtonText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 20,
+    backgroundColor: '#FFFFFF',
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#6B7280',
+    marginTop: 4,
+  },
+  editButton: {
+    backgroundColor: '#3B82F6',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  section: {
+    paddingHorizontal: 20,
+    marginVertical: 16,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 16,
+  },
+  profileCard: {
+    backgroundColor: '#FFFFFF',
+    padding: 20,
+    borderRadius: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  profileField: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  fieldContent: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  fieldLabel: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 4,
+  },
+  fieldValue: {
+    fontSize: 16,
+    color: '#1F2937',
+    fontWeight: '500',
+  },
+  settingsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  settingsItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  settingsIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  settingsContent: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  settingsTitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1F2937',
+  },
+  settingsDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  summaryCard: {
+    backgroundColor: '#FFFFFF',
+    padding: 20,
+    borderRadius: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  summaryText: {
+    fontSize: 14,
+    color: '#6B7280',
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  disclaimer: {
+    backgroundColor: '#FEF3C7',
+    padding: 12,
+    borderRadius: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: '#F59E0B',
+  },
+  disclaimerText: {
+    fontSize: 12,
+    color: '#92400E',
+    lineHeight: 16,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    margin: 20,
+    borderRadius: 16,
+    maxHeight: '80%',
+    width: '90%',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1F2937',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  inputGroup: {
+    padding: 20,
+    paddingBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 14,
+    color: '#374151',
+    marginBottom: 8,
+    fontWeight: '500',
+  },
+  textInput: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    backgroundColor: '#F9FAFB',
+  },
+  textArea: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    backgroundColor: '#F9FAFB',
+    textAlignVertical: 'top',
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    padding: 20,
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  cancelButton: {
+    flex: 1,
+    backgroundColor: '#F3F4F6',
+    padding: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  saveButton: {
+    flex: 1,
+    backgroundColor: '#3B82F6',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 14,
+    borderRadius: 8,
+  },
+  saveButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '500',
+    marginLeft: 8,
+  },
+});
