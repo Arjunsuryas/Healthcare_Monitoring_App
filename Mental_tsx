@@ -1,0 +1,675 @@
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Alert,
+  Modal,
+} from 'react-native';
+import { Brain, Smile, Meh, Frown, TrendingDown, Calendar, CircleCheck as CheckCircle, Circle, Target } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+interface MoodEntry {
+  mood: number; // 1-5 scale
+  stress: number; // 1-5 scale
+  overthinking: number; // 1-5 scale
+  notes?: string;
+  timestamp: string;
+}
+
+interface Exercise {
+  id: string;
+  title: string;
+  description: string;
+  duration: string;
+  completed: boolean;
+}
+
+export default function MentalHealthScreen() {
+  const [currentMood, setCurrentMood] = useState<number | null>(null);
+  const [currentStress, setCurrentStress] = useState<number | null>(null);
+  const [currentOverthinking, setCurrentOverthinking] = useState<number | null>(null);
+  const [showBreathingModal, setShowBreathingModal] = useState(false);
+  const [breathingPhase, setBreathingPhase] = useState<'inhale' | 'hold' | 'exhale'>('inhale');
+  const [breathingCount, setBreathingCount] = useState(0);
+  const [entries, setEntries] = useState<MoodEntry[]>([]);
+  const [exercises] = useState<Exercise[]>([
+    {
+      id: '1',
+      title: '5-Minute Meditation',
+      description: 'Guided mindfulness meditation to reduce anxiety',
+      duration: '5 min',
+      completed: false,
+    },
+    {
+      id: '2',
+      title: 'Deep Breathing',
+      description: '4-7-8 breathing technique for stress relief',
+      duration: '3 min',
+      completed: false,
+    },
+    {
+      id: '3',
+      title: 'Gratitude Journal',
+      description: 'Write down three things you\'re grateful for',
+      duration: '5 min',
+      completed: false,
+    },
+    {
+      id: '4',
+      title: 'Progressive Relaxation',
+      description: 'Tense and release muscle groups to reduce stress',
+      duration: '10 min',
+      completed: false,
+    },
+  ]);
+
+  useEffect(() => {
+    loadEntries();
+  }, []);
+
+  const loadEntries = async () => {
+    try {
+      const data = await AsyncStorage.getItem('mentalEntries');
+      if (data) {
+        setEntries(JSON.parse(data));
+      }
+    } catch (error) {
+      console.log('Error loading mental health entries:', error);
+    }
+  };
+
+  const saveEntry = async () => {
+    if (currentMood === null || currentStress === null || currentOverthinking === null) {
+      Alert.alert('Incomplete', 'Please rate all categories');
+      return;
+    }
+
+    const entry: MoodEntry = {
+      mood: currentMood,
+      stress: currentStress,
+      overthinking: currentOverthinking,
+      timestamp: new Date().toISOString(),
+    };
+
+    try {
+      const updatedEntries = [entry, ...entries.slice(0, 29)]; // Keep last 30 entries
+      setEntries(updatedEntries);
+      await AsyncStorage.setItem('mentalEntries', JSON.stringify(updatedEntries));
+
+      // Update main health data
+      const mentalScore = (currentMood + (6 - currentStress) + (6 - currentOverthinking)) / 3;
+      const healthData = {
+        mentalScore: Math.round(mentalScore * 10) / 10,
+        lastUpdated: new Date().toLocaleDateString(),
+      };
+
+      const existingData = await AsyncStorage.getItem('healthData');
+      const currentData = existingData ? JSON.parse(existingData) : {};
+
+      await AsyncStorage.setItem('healthData', JSON.stringify({
+        ...currentData,
+        ...healthData,
+      }));
+
+      // Reset form
+      setCurrentMood(null);
+      setCurrentStress(null);
+      setCurrentOverthinking(null);
+
+      Alert.alert('Success', 'Mental health entry saved!');
+    } catch (error) {
+      console.log('Error saving entry:', error);
+      Alert.alert('Error', 'Failed to save entry');
+    }
+  };
+
+  const startBreathingExercise = () => {
+    setShowBreathingModal(true);
+    setBreathingPhase('inhale');
+    setBreathingCount(0);
+    
+    // Breathing cycle: 4 seconds inhale, 7 seconds hold, 8 seconds exhale
+    let cycleCount = 0;
+    const maxCycles = 4;
+    
+    const breathingCycle = () => {
+      if (cycleCount >= maxCycles) {
+        setShowBreathingModal(false);
+        Alert.alert('Complete', 'Great job! You completed the breathing exercise.');
+        return;
+      }
+      
+      // Inhale phase
+      setBreathingPhase('inhale');
+      setTimeout(() => {
+        setBreathingPhase('hold');
+        setTimeout(() => {
+          setBreathingPhase('exhale');
+          setTimeout(() => {
+            cycleCount++;
+            setBreathingCount(cycleCount);
+            if (cycleCount < maxCycles) {
+              breathingCycle();
+            } else {
+              setShowBreathingModal(false);
+              Alert.alert('Complete', 'Great job! You completed the breathing exercise.');
+            }
+          }, 8000); // Exhale for 8 seconds
+        }, 7000); // Hold for 7 seconds
+      }, 4000); // Inhale for 4 seconds
+    };
+    
+    breathingCycle();
+  };
+
+  const RatingScale = ({ 
+    title, 
+    value, 
+    onValueChange, 
+    lowLabel, 
+    highLabel 
+  }: {
+    title: string;
+    value: number | null;
+    onValueChange: (value: number) => void;
+    lowLabel: string;
+    highLabel: string;
+  }) => (
+    <View style={styles.ratingContainer}>
+      <Text style={styles.ratingTitle}>{title}</Text>
+      <View style={styles.scaleContainer}>
+        <Text style={styles.scaleLabel}>{lowLabel}</Text>
+        <View style={styles.scaleButtons}>
+          {[1, 2, 3, 4, 5].map((rating) => (
+            <TouchableOpacity
+              key={rating}
+              style={[
+                styles.scaleButton,
+                value === rating && styles.selectedScale,
+              ]}
+              onPress={() => onValueChange(rating)}
+            >
+              <Text
+                style={[
+                  styles.scaleButtonText,
+                  value === rating && styles.selectedScaleText,
+                ]}
+              >
+                {rating}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <Text style={styles.scaleLabel}>{highLabel}</Text>
+      </View>
+    </View>
+  );
+
+  const getMoodIcon = (mood: number) => {
+    if (mood <= 2) return <Frown size={24} color="#EF4444" />;
+    if (mood <= 3) return <Meh size={24} color="#F59E0B" />;
+    return <Smile size={24} color="#10B981" />;
+  };
+
+  const getAverageScores = () => {
+    if (entries.length === 0) return null;
+    
+    const recent = entries.slice(0, 7); // Last 7 entries
+    const avgMood = recent.reduce((sum, entry) => sum + entry.mood, 0) / recent.length;
+    const avgStress = recent.reduce((sum, entry) => sum + entry.stress, 0) / recent.length;
+    const avgOverthinking = recent.reduce((sum, entry) => sum + entry.overthinking, 0) / recent.length;
+    
+    return { avgMood, avgStress, avgOverthinking };
+  };
+
+  const averages = getAverageScores();
+
+  return (
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      {/* Header */}
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.title}>Mental Health</Text>
+          <Text style={styles.subtitle}>Track your emotional wellbeing</Text>
+        </View>
+        <Brain size={32} color="#8B5CF6" />
+      </View>
+
+      {/* Current Assessment */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>How are you feeling today?</Text>
+        <View style={styles.assessmentCard}>
+          <RatingScale
+            title="Overall Mood"
+            value={currentMood}
+            onValueChange={setCurrentMood}
+            lowLabel="Very Bad"
+            highLabel="Great"
+          />
+          
+          <RatingScale
+            title="Stress Level"
+            value={currentStress}
+            onValueChange={setCurrentStress}
+            lowLabel="No Stress"
+            highLabel="Very Stressed"
+          />
+          
+          <RatingScale
+            title="Overthinking"
+            value={currentOverthinking}
+            onValueChange={setCurrentOverthinking}
+            lowLabel="Clear Mind"
+            highLabel="Racing Thoughts"
+          />
+
+          <TouchableOpacity style={styles.saveButton} onPress={saveEntry}>
+            <CheckCircle size={20} color="#FFFFFF" />
+            <Text style={styles.saveButtonText}>Save Entry</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Weekly Average */}
+      {averages && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Weekly Average</Text>
+          <View style={styles.averageCard}>
+            <View style={styles.averageItem}>
+              <Text style={styles.averageLabel}>Mood</Text>
+              <Text style={[styles.averageValue, { color: '#10B981' }]}>
+                {averages.avgMood.toFixed(1)}/5
+              </Text>
+            </View>
+            <View style={styles.averageItem}>
+              <Text style={styles.averageLabel}>Stress</Text>
+              <Text style={[styles.averageValue, { color: '#EF4444' }]}>
+                {averages.avgStress.toFixed(1)}/5
+              </Text>
+            </View>
+            <View style={styles.averageItem}>
+              <Text style={styles.averageLabel}>Overthinking</Text>
+              <Text style={[styles.averageValue, { color: '#F59E0B' }]}>
+                {averages.avgOverthinking.toFixed(1)}/5
+              </Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Mental Health Exercises */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Wellness Exercises</Text>
+        
+        <TouchableOpacity 
+          style={styles.breathingCard}
+          onPress={startBreathingExercise}
+        >
+          <View style={styles.exerciseHeader}>
+            <Target size={24} color="#3B82F6" />
+            <View style={styles.exerciseInfo}>
+              <Text style={styles.exerciseTitle}>4-7-8 Breathing</Text>
+              <Text style={styles.exerciseDescription}>
+                Reduce anxiety and promote relaxation
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.startText}>Start →</Text>
+        </TouchableOpacity>
+
+        {exercises.map((exercise) => (
+          <View key={exercise.id} style={styles.exerciseCard}>
+            <View style={styles.exerciseHeader}>
+              <Circle size={20} color="#6B7280" />
+              <View style={styles.exerciseInfo}>
+                <Text style={styles.exerciseTitle}>{exercise.title}</Text>
+                <Text style={styles.exerciseDescription}>{exercise.description}</Text>
+              </View>
+            </View>
+            <Text style={styles.exerciseDuration}>{exercise.duration}</Text>
+          </View>
+        ))}
+      </View>
+
+      {/* Recent Entries */}
+      {entries.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Recent Entries</Text>
+          {entries.slice(0, 5).map((entry, index) => (
+            <View key={index} style={styles.entryCard}>
+              <View style={styles.entryHeader}>
+                <View>
+                  <Text style={styles.entryDate}>
+                    {new Date(entry.timestamp).toLocaleDateString()}
+                  </Text>
+                  <Text style={styles.entryTime}>
+                    {new Date(entry.timestamp).toLocaleTimeString()}
+                  </Text>
+                </View>
+                <View style={styles.entryScores}>
+                  <View style={styles.scoreItem}>
+                    {getMoodIcon(entry.mood)}
+                    <Text style={styles.scoreText}>{entry.mood}/5</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* Breathing Exercise Modal */}
+      <Modal visible={showBreathingModal} transparent animationType="fade">
+        <View style={styles.breathingOverlay}>
+          <View style={styles.breathingContent}>
+            <Text style={styles.breathingTitle}>4-7-8 Breathing</Text>
+            <Text style={styles.breathingCount}>Round {breathingCount + 1}/4</Text>
+            
+            <View style={styles.breathingCircle}>
+              <Text style={styles.breathingPhaseText}>
+                {breathingPhase === 'inhale' && 'Breathe In'}
+                {breathingPhase === 'hold' && 'Hold'}
+                {breathingPhase === 'exhale' && 'Breathe Out'}
+              </Text>
+              <Text style={styles.breathingDuration}>
+                {breathingPhase === 'inhale' && '4 seconds'}
+                {breathingPhase === 'hold' && '7 seconds'}
+                {breathingPhase === 'exhale' && '8 seconds'}
+              </Text>
+            </View>
+            
+            <TouchableOpacity
+              style={styles.stopBreathingButton}
+              onPress={() => setShowBreathingModal(false)}
+            >
+              <Text style={styles.stopBreathingText}>Stop</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 20,
+    backgroundColor: '#FFFFFF',
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#6B7280',
+    marginTop: 4,
+  },
+  section: {
+    paddingHorizontal: 20,
+    marginVertical: 16,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 16,
+  },
+  assessmentCard: {
+    backgroundColor: '#FFFFFF',
+    padding: 20,
+    borderRadius: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  ratingContainer: {
+    marginBottom: 24,
+  },
+  ratingTitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1F2937',
+    marginBottom: 12,
+  },
+  scaleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  scaleLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    flex: 1,
+  },
+  scaleButtons: {
+    flexDirection: 'row',
+    flex: 2,
+    justifyContent: 'space-around',
+  },
+  scaleButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  selectedScale: {
+    borderColor: '#8B5CF6',
+    backgroundColor: '#8B5CF6',
+  },
+  scaleButtonText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#6B7280',
+  },
+  selectedScaleText: {
+    color: '#FFFFFF',
+  },
+  saveButton: {
+    backgroundColor: '#8B5CF6',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 12,
+    marginTop: 8,
+  },
+  saveButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  averageCard: {
+    backgroundColor: '#FFFFFF',
+    padding: 20,
+    borderRadius: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  averageItem: {
+    alignItems: 'center',
+  },
+  averageLabel: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 4,
+  },
+  averageValue: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  breathingCard: {
+    backgroundColor: '#EBF4FF',
+    padding: 16,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#3B82F6',
+  },
+  exerciseCard: {
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  exerciseHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  exerciseInfo: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  exerciseTitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1F2937',
+  },
+  exerciseDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  exerciseDuration: {
+    fontSize: 14,
+    color: '#8B5CF6',
+    fontWeight: '500',
+  },
+  startText: {
+    fontSize: 16,
+    color: '#3B82F6',
+    fontWeight: '600',
+  },
+  entryCard: {
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 8,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  entryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  entryDate: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1F2937',
+  },
+  entryTime: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  entryScores: {
+    alignItems: 'flex-end',
+  },
+  scoreItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  scoreText: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginLeft: 8,
+  },
+  breathingOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  breathingContent: {
+    backgroundColor: '#FFFFFF',
+    padding: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    width: 300,
+  },
+  breathingTitle: {
+    fontSize: 24,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 8,
+  },
+  breathingCount: {
+    fontSize: 16,
+    color: '#6B7280',
+    marginBottom: 40,
+  },
+  breathingCircle: {
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: '#EBF4FF',
+    borderWidth: 4,
+    borderColor: '#3B82F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 40,
+  },
+  breathingPhaseText: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#3B82F6',
+    textAlign: 'center',
+  },
+  breathingDuration: {
+    fontSize: 16,
+    color: '#6B7280',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  stopBreathingButton: {
+    backgroundColor: '#6B7280',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  stopBreathingText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+});
