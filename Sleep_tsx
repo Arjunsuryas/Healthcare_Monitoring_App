@@ -1,0 +1,651 @@
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Alert,
+  Modal,
+  TextInput,
+} from 'react-native';
+import { Moon, Sun, Clock, TrendingUp, Calendar, Plus, Save, ChartBar as BarChart3 } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+interface SleepEntry {
+  bedTime: string;
+  wakeTime: string;
+  sleepQuality: number; // 1-5 scale
+  sleepHours: number;
+  notes?: string;
+  timestamp: string;
+}
+
+export default function SleepScreen() {
+  const [sleepEntries, setSleepEntries] = useState<SleepEntry[]>([]);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [bedTime, setBedTime] = useState('');
+  const [wakeTime, setWakeTime] = useState('');
+  const [sleepQuality, setSleepQuality] = useState<number | null>(null);
+
+  useEffect(() => {
+    loadSleepEntries();
+  }, []);
+
+  const loadSleepEntries = async () => {
+    try {
+      const data = await AsyncStorage.getItem('sleepEntries');
+      if (data) {
+        setSleepEntries(JSON.parse(data));
+      }
+    } catch (error) {
+      console.log('Error loading sleep entries:', error);
+    }
+  };
+
+  const calculateSleepHours = (bedTime: string, wakeTime: string): number => {
+    const [bedHour, bedMinute] = bedTime.split(':').map(Number);
+    const [wakeHour, wakeMinute] = wakeTime.split(':').map(Number);
+    
+    let bedTimeMinutes = bedHour * 60 + bedMinute;
+    let wakeTimeMinutes = wakeHour * 60 + wakeMinute;
+    
+    // Handle crossing midnight
+    if (wakeTimeMinutes < bedTimeMinutes) {
+      wakeTimeMinutes += 24 * 60;
+    }
+    
+    const sleepMinutes = wakeTimeMinutes - bedTimeMinutes;
+    return Math.round((sleepMinutes / 60) * 10) / 10;
+  };
+
+  const saveSleepEntry = async () => {
+    if (!bedTime || !wakeTime || sleepQuality === null) {
+      Alert.alert('Incomplete', 'Please fill in all fields');
+      return;
+    }
+
+    const sleepHours = calculateSleepHours(bedTime, wakeTime);
+    
+    if (sleepHours <= 0 || sleepHours > 24) {
+      Alert.alert('Invalid Time', 'Please enter valid sleep times');
+      return;
+    }
+
+    const entry: SleepEntry = {
+      bedTime,
+      wakeTime,
+      sleepQuality,
+      sleepHours,
+      timestamp: new Date().toISOString(),
+    };
+
+    try {
+      const updatedEntries = [entry, ...sleepEntries.slice(0, 29)]; // Keep last 30 entries
+      setSleepEntries(updatedEntries);
+      await AsyncStorage.setItem('sleepEntries', JSON.stringify(updatedEntries));
+
+      // Update main health data
+      const healthData = {
+        sleepHours,
+        lastUpdated: new Date().toLocaleDateString(),
+      };
+
+      const existingData = await AsyncStorage.getItem('healthData');
+      const currentData = existingData ? JSON.parse(existingData) : {};
+
+      await AsyncStorage.setItem('healthData', JSON.stringify({
+        ...currentData,
+        ...healthData,
+      }));
+
+      // Reset form
+      setBedTime('');
+      setWakeTime('');
+      setSleepQuality(null);
+      setShowAddModal(false);
+
+      Alert.alert('Success', 'Sleep entry saved!');
+    } catch (error) {
+      console.log('Error saving sleep entry:', error);
+      Alert.alert('Error', 'Failed to save sleep entry');
+    }
+  };
+
+  const getAverageStats = () => {
+    if (sleepEntries.length === 0) return null;
+    
+    const recent = sleepEntries.slice(0, 7); // Last 7 entries
+    const avgHours = recent.reduce((sum, entry) => sum + entry.sleepHours, 0) / recent.length;
+    const avgQuality = recent.reduce((sum, entry) => sum + entry.sleepQuality, 0) / recent.length;
+    
+    return { avgHours, avgQuality };
+  };
+
+  const getSleepQualityColor = (quality: number) => {
+    if (quality <= 2) return '#EF4444';
+    if (quality <= 3) return '#F59E0B';
+    return '#10B981';
+  };
+
+  const getSleepDurationColor = (hours: number) => {
+    if (hours < 6 || hours > 9) return '#EF4444';
+    if (hours < 7 || hours > 8) return '#F59E0B';
+    return '#10B981';
+  };
+
+  const averageStats = getAverageStats();
+
+  const QualityScale = ({ value, onValueChange }: { value: number | null; onValueChange: (value: number) => void }) => (
+    <View style={styles.qualityContainer}>
+      <Text style={styles.qualityTitle}>Sleep Quality</Text>
+      <View style={styles.qualityScale}>
+        <Text style={styles.scaleLabel}>Poor</Text>
+        <View style={styles.qualityButtons}>
+          {[1, 2, 3, 4, 5].map((rating) => (
+            <TouchableOpacity
+              key={rating}
+              style={[
+                styles.qualityButton,
+                value === rating && styles.selectedQuality,
+              ]}
+              onPress={() => onValueChange(rating)}
+            >
+              <Text
+                style={[
+                  styles.qualityButtonText,
+                  value === rating && styles.selectedQualityText,
+                ]}
+              >
+                {rating}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <Text style={styles.scaleLabel}>Excellent</Text>
+      </View>
+    </View>
+  );
+
+  return (
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      {/* Header */}
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.title}>Sleep Tracking</Text>
+          <Text style={styles.subtitle}>Monitor your sleep patterns</Text>
+        </View>
+        <Moon size={32} color="#10B981" />
+      </View>
+
+      {/* Add Sleep Entry Button */}
+      <View style={styles.section}>
+        <TouchableOpacity
+          style={styles.addButton}
+          onPress={() => setShowAddModal(true)}
+        >
+          <Plus size={24} color="#FFFFFF" />
+          <Text style={styles.addButtonText}>Log Sleep</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Sleep Statistics */}
+      {averageStats && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Weekly Average</Text>
+          <View style={styles.statsCard}>
+            <View style={styles.statItem}>
+              <Clock size={24} color="#10B981" />
+              <Text style={styles.statValue}>{averageStats.avgHours.toFixed(1)}h</Text>
+              <Text style={styles.statLabel}>Duration</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <BarChart3 size={24} color="#8B5CF6" />
+              <Text style={styles.statValue}>{averageStats.avgQuality.toFixed(1)}/5</Text>
+              <Text style={styles.statLabel}>Quality</Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Sleep Tips */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Sleep Health Tips</Text>
+        <View style={styles.tipCard}>
+          <Moon size={20} color="#10B981" />
+          <View style={styles.tipContent}>
+            <Text style={styles.tipTitle}>Optimal Sleep Duration</Text>
+            <Text style={styles.tipText}>
+              Adults should aim for 7-9 hours of quality sleep per night for optimal health and cognitive function.
+            </Text>
+          </View>
+        </View>
+        
+        <View style={styles.tipCard}>
+          <Sun size={20} color="#F59E0B" />
+          <View style={styles.tipContent}>
+            <Text style={styles.tipTitle}>Sleep Hygiene</Text>
+            <Text style={styles.tipText}>
+              Maintain a consistent sleep schedule, avoid screens 1 hour before bed, and keep your bedroom cool and dark.
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Recent Sleep Entries */}
+      {sleepEntries.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Recent Sleep Log</Text>
+          {sleepEntries.slice(0, 7).map((entry, index) => (
+            <View key={index} style={styles.entryCard}>
+              <View style={styles.entryHeader}>
+                <View>
+                  <Text style={styles.entryDate}>
+                    {new Date(entry.timestamp).toLocaleDateString()}
+                  </Text>
+                  <Text style={styles.sleepTimes}>
+                    {entry.bedTime} - {entry.wakeTime}
+                  </Text>
+                </View>
+                <View style={styles.entryStats}>
+                  <Text style={[
+                    styles.sleepHours,
+                    { color: getSleepDurationColor(entry.sleepHours) }
+                  ]}>
+                    {entry.sleepHours}h
+                  </Text>
+                  <View style={styles.qualityDisplay}>
+                    {[...Array(5)].map((_, i) => (
+                      <View
+                        key={i}
+                        style={[
+                          styles.qualityDot,
+                          {
+                            backgroundColor: i < entry.sleepQuality
+                              ? getSleepQualityColor(entry.sleepQuality)
+                              : '#E5E7EB'
+                          }
+                        ]}
+                      />
+                    ))}
+                  </View>
+                </View>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* Sleep Disorder Detection */}
+      {sleepEntries.length >= 7 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Sleep Pattern Analysis</Text>
+          <View style={styles.analysisCard}>
+            <TrendingUp size={24} color="#3B82F6" />
+            <View style={styles.analysisContent}>
+              <Text style={styles.analysisTitle}>Pattern Detected</Text>
+              <Text style={styles.analysisText}>
+                {averageStats && averageStats.avgHours < 6 
+                  ? "You're consistently getting less sleep than recommended. Consider improving your sleep hygiene."
+                  : averageStats && averageStats.avgHours > 9
+                  ? "You're sleeping more than the recommended amount. Consider consulting with a sleep specialist."
+                  : "Your sleep pattern looks healthy! Keep maintaining good sleep habits."
+                }
+              </Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Add Sleep Entry Modal */}
+      <Modal visible={showAddModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Log Sleep</Text>
+            
+            <View style={styles.timeInputContainer}>
+              <View style={styles.timeInput}>
+                <Text style={styles.timeLabel}>Bedtime</Text>
+                <TextInput
+                  style={styles.timeField}
+                  value={bedTime}
+                  onChangeText={setBedTime}
+                  placeholder="22:00"
+                  placeholderTextColor="#9CA3AF"
+                />
+              </View>
+              
+              <View style={styles.timeInput}>
+                <Text style={styles.timeLabel}>Wake Time</Text>
+                <TextInput
+                  style={styles.timeField}
+                  value={wakeTime}
+                  onChangeText={setWakeTime}
+                  placeholder="07:00"
+                  placeholderTextColor="#9CA3AF"
+                />
+              </View>
+            </View>
+
+            <QualityScale value={sleepQuality} onValueChange={setSleepQuality} />
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => {
+                  setShowAddModal(false);
+                  setBedTime('');
+                  setWakeTime('');
+                  setSleepQuality(null);
+                }}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity style={styles.saveButton} onPress={saveSleepEntry}>
+                <Save size={20} color="#FFFFFF" />
+                <Text style={styles.saveButtonText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 20,
+    backgroundColor: '#FFFFFF',
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#6B7280',
+    marginTop: 4,
+  },
+  section: {
+    paddingHorizontal: 20,
+    marginVertical: 16,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 16,
+  },
+  addButton: {
+    backgroundColor: '#10B981',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 12,
+  },
+  addButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  statsCard: {
+    backgroundColor: '#FFFFFF',
+    padding: 24,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginTop: 8,
+  },
+  statLabel: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 4,
+  },
+  statDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: '#E5E7EB',
+    marginHorizontal: 20,
+  },
+  tipCard: {
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  tipContent: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  tipTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  tipText: {
+    fontSize: 14,
+    color: '#6B7280',
+    lineHeight: 20,
+  },
+  entryCard: {
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 8,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  entryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  entryDate: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1F2937',
+  },
+  sleepTimes: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  entryStats: {
+    alignItems: 'flex-end',
+  },
+  sleepHours: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  qualityDisplay: {
+    flexDirection: 'row',
+    marginTop: 4,
+  },
+  qualityDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginHorizontal: 1,
+  },
+  analysisCard: {
+    backgroundColor: '#EBF4FF',
+    padding: 16,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    borderLeftWidth: 4,
+    borderLeftColor: '#3B82F6',
+  },
+  analysisContent: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  analysisTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  analysisText: {
+    fontSize: 14,
+    color: '#374151',
+    lineHeight: 20,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    padding: 24,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    minHeight: 400,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  timeInputContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 24,
+    gap: 16,
+  },
+  timeInput: {
+    flex: 1,
+  },
+  timeLabel: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 8,
+  },
+  timeField: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  qualityContainer: {
+    marginBottom: 24,
+  },
+  qualityTitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1F2937',
+    marginBottom: 12,
+  },
+  qualityScale: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  scaleLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    flex: 1,
+  },
+  qualityButtons: {
+    flexDirection: 'row',
+    flex: 2,
+    justifyContent: 'space-around',
+  },
+  qualityButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  selectedQuality: {
+    borderColor: '#10B981',
+    backgroundColor: '#10B981',
+  },
+  qualityButtonText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#6B7280',
+  },
+  selectedQualityText: {
+    color: '#FFFFFF',
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  cancelButton: {
+    flex: 1,
+    backgroundColor: '#F3F4F6',
+    padding: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    color: '#6B7280',
+  },
+  saveButton: {
+    flex: 1,
+    backgroundColor: '#10B981',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 14,
+    borderRadius: 8,
+  },
+  saveButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '500',
+    marginLeft: 8,
+  },
+});
