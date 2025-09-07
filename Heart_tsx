@@ -1,0 +1,584 @@
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Alert,
+  Modal,
+  TextInput,
+  ScrollView,
+} from 'react-native';
+import { Heart, Activity, CirclePlay as PlayCircle, CircleStop as StopCircle, Save, TrendingUp, Calendar } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+interface Reading {
+  heartRate: number;
+  bloodPressure: { systolic: number; diastolic: number };
+  timestamp: string;
+  notes?: string;
+}
+
+export default function HeartScreen() {
+  const [isMonitoring, setIsMonitoring] = useState(false);
+  const [heartRate, setHeartRate] = useState<number | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [showBPModal, setShowBPModal] = useState(false);
+  const [systolic, setSystolic] = useState('');
+  const [diastolic, setDiastolic] = useState('');
+  const [readings, setReadings] = useState<Reading[]>([]);
+
+  useEffect(() => {
+    loadReadings();
+  }, []);
+
+  const loadReadings = async () => {
+    try {
+      const data = await AsyncStorage.getItem('heartReadings');
+      if (data) {
+        setReadings(JSON.parse(data));
+      }
+    } catch (error) {
+      console.log('Error loading readings:', error);
+    }
+  };
+
+  const saveReading = async (reading: Reading) => {
+    try {
+      const updatedReadings = [reading, ...readings.slice(0, 9)]; // Keep last 10 readings
+      setReadings(updatedReadings);
+      await AsyncStorage.setItem('heartReadings', JSON.stringify(updatedReadings));
+      
+      // Update main health data
+      const healthData = {
+        heartRate: reading.heartRate,
+        bloodPressure: reading.bloodPressure,
+        lastUpdated: new Date().toLocaleDateString(),
+      };
+      
+      const existingData = await AsyncStorage.getItem('healthData');
+      const currentData = existingData ? JSON.parse(existingData) : {};
+      
+      await AsyncStorage.setItem('healthData', JSON.stringify({
+        ...currentData,
+        ...healthData,
+      }));
+    } catch (error) {
+      console.log('Error saving reading:', error);
+    }
+  };
+
+  const startHeartRateMonitoring = () => {
+    setIsMonitoring(true);
+    setProgress(0);
+    setHeartRate(null);
+
+    // Simulate heart rate measurement over 15 seconds
+    const interval = setInterval(() => {
+      setProgress((prev) => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          setIsMonitoring(false);
+          // Generate realistic heart rate (60-100 BPM with some variation)
+          const simulatedRate = Math.floor(Math.random() * 40) + 60;
+          setHeartRate(simulatedRate);
+          return 100;
+        }
+        return prev + 6.67; // 100/15 = 6.67% per second
+      });
+    }, 1000);
+  };
+
+  const stopMonitoring = () => {
+    setIsMonitoring(false);
+    setProgress(0);
+  };
+
+  const getHeartRateCategory = (rate: number) => {
+    if (rate < 60) return { category: 'Low', color: '#EF4444' };
+    if (rate <= 100) return { category: 'Normal', color: '#10B981' };
+    return { category: 'High', color: '#EF4444' };
+  };
+
+  const getBPCategory = (systolic: number, diastolic: number) => {
+    if (systolic < 120 && diastolic < 80) return { category: 'Normal', color: '#10B981' };
+    if (systolic <= 129 && diastolic < 80) return { category: 'Elevated', color: '#F59E0B' };
+    if (systolic <= 139 || diastolic <= 89) return { category: 'Stage 1', color: '#EF4444' };
+    return { category: 'Stage 2', color: '#DC2626' };
+  };
+
+  const saveBP = () => {
+    const systolicNum = parseInt(systolic);
+    const diastolicNum = parseInt(diastolic);
+    
+    if (!heartRate) {
+      Alert.alert('Error', 'Please measure heart rate first');
+      return;
+    }
+    
+    if (systolicNum < 70 || systolicNum > 200 || diastolicNum < 40 || diastolicNum > 120) {
+      Alert.alert('Error', 'Please enter valid blood pressure values');
+      return;
+    }
+
+    const reading: Reading = {
+      heartRate,
+      bloodPressure: { systolic: systolicNum, diastolic: diastolicNum },
+      timestamp: new Date().toISOString(),
+    };
+
+    saveReading(reading);
+    setShowBPModal(false);
+    setSystolic('');
+    setDiastolic('');
+    Alert.alert('Success', 'Reading saved successfully!');
+  };
+
+  return (
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      {/* Header */}
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.title}>Heart Health</Text>
+          <Text style={styles.subtitle}>Monitor your cardiovascular health</Text>
+        </View>
+        <Heart size={32} color="#EF4444" />
+      </View>
+
+      {/* Heart Rate Monitor */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Heart Rate Monitor</Text>
+        <View style={styles.monitorCard}>
+          <View style={styles.monitorDisplay}>
+            <Heart 
+              size={48} 
+              color={isMonitoring ? '#EF4444' : '#6B7280'} 
+              style={isMonitoring ? styles.pulsingHeart : {}}
+            />
+            {heartRate ? (
+              <View style={styles.rateDisplay}>
+                <Text style={styles.rateValue}>{heartRate}</Text>
+                <Text style={styles.rateUnit}>BPM</Text>
+                <Text style={[styles.rateCategory, { color: getHeartRateCategory(heartRate).color }]}>
+                  {getHeartRateCategory(heartRate).category}
+                </Text>
+              </View>
+            ) : (
+              <Text style={styles.instructionText}>
+                {isMonitoring ? 'Keep your finger still...' : 'Place finger on camera'}
+              </Text>
+            )}
+          </View>
+
+          {isMonitoring && (
+            <View style={styles.progressContainer}>
+              <View style={styles.progressBar}>
+                <View style={[styles.progressFill, { width: `${progress}%` }]} />
+              </View>
+              <Text style={styles.progressText}>{Math.round(progress)}%</Text>
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={[styles.monitorButton, isMonitoring && styles.stopButton]}
+            onPress={isMonitoring ? stopMonitoring : startHeartRateMonitoring}
+            disabled={isMonitoring && progress === 0}
+          >
+            {isMonitoring ? (
+              <StopCircle size={24} color="#FFFFFF" />
+            ) : (
+              <PlayCircle size={24} color="#FFFFFF" />
+            )}
+            <Text style={styles.buttonText}>
+              {isMonitoring ? 'Stop Monitoring' : 'Start Monitoring'}
+            </Text>
+          </TouchableOpacity>
+
+          {heartRate && !isMonitoring && (
+            <TouchableOpacity
+              style={styles.bpButton}
+              onPress={() => setShowBPModal(true)}
+            >
+              <Activity size={20} color="#3B82F6" />
+              <Text style={styles.bpButtonText}>Add Blood Pressure</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      {/* Recent Readings */}
+      {readings.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Recent Readings</Text>
+          {readings.slice(0, 5).map((reading, index) => (
+            <View key={index} style={styles.readingCard}>
+              <View style={styles.readingHeader}>
+                <View>
+                  <Text style={styles.readingDate}>
+                    {new Date(reading.timestamp).toLocaleDateString()}
+                  </Text>
+                  <Text style={styles.readingTime}>
+                    {new Date(reading.timestamp).toLocaleTimeString()}
+                  </Text>
+                </View>
+                <View style={styles.readingValues}>
+                  <Text style={[
+                    styles.readingHR, 
+                    { color: getHeartRateCategory(reading.heartRate).color }
+                  ]}>
+                    {reading.heartRate} BPM
+                  </Text>
+                  <Text style={[
+                    styles.readingBP,
+                    { color: getBPCategory(reading.bloodPressure.systolic, reading.bloodPressure.diastolic).color }
+                  ]}>
+                    {reading.bloodPressure.systolic}/{reading.bloodPressure.diastolic}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* Health Tips */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Heart Health Tips</Text>
+        <View style={styles.tipCard}>
+          <TrendingUp size={20} color="#10B981" />
+          <View style={styles.tipContent}>
+            <Text style={styles.tipTitle}>Healthy Heart Rate</Text>
+            <Text style={styles.tipText}>
+              A normal resting heart rate is 60-100 BPM. Regular exercise can help lower your resting heart rate.
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Blood Pressure Modal */}
+      <Modal visible={showBPModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Add Blood Pressure</Text>
+            
+            <View style={styles.bpInputContainer}>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Systolic (mmHg)</Text>
+                <TextInput
+                  style={styles.bpInput}
+                  value={systolic}
+                  onChangeText={setSystolic}
+                  keyboardType="numeric"
+                  placeholder="120"
+                />
+              </View>
+              
+              <Text style={styles.bpSeparator}>/</Text>
+              
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Diastolic (mmHg)</Text>
+                <TextInput
+                  style={styles.bpInput}
+                  value={diastolic}
+                  onChangeText={setDiastolic}
+                  keyboardType="numeric"
+                  placeholder="80"
+                />
+              </View>
+            </View>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => {
+                  setShowBPModal(false);
+                  setSystolic('');
+                  setDiastolic('');
+                }}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity style={styles.saveButton} onPress={saveBP}>
+                <Save size={20} color="#FFFFFF" />
+                <Text style={styles.saveButtonText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 20,
+    backgroundColor: '#FFFFFF',
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#6B7280',
+    marginTop: 4,
+  },
+  section: {
+    paddingHorizontal: 20,
+    marginVertical: 16,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 16,
+  },
+  monitorCard: {
+    backgroundColor: '#FFFFFF',
+    padding: 24,
+    borderRadius: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  monitorDisplay: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  pulsingHeart: {
+    // Add animation styles here if needed
+  },
+  rateDisplay: {
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  rateValue: {
+    fontSize: 48,
+    fontWeight: '700',
+    color: '#EF4444',
+  },
+  rateUnit: {
+    fontSize: 18,
+    color: '#6B7280',
+    marginTop: -8,
+  },
+  rateCategory: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 8,
+  },
+  instructionText: {
+    fontSize: 16,
+    color: '#6B7280',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  progressContainer: {
+    marginBottom: 20,
+  },
+  progressBar: {
+    height: 8,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#EF4444',
+  },
+  progressText: {
+    textAlign: 'center',
+    marginTop: 8,
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  monitorButton: {
+    backgroundColor: '#EF4444',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  stopButton: {
+    backgroundColor: '#DC2626',
+  },
+  buttonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  bpButton: {
+    backgroundColor: '#EBF4FF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 8,
+  },
+  bpButtonText: {
+    color: '#3B82F6',
+    fontSize: 14,
+    fontWeight: '500',
+    marginLeft: 8,
+  },
+  readingCard: {
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 8,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  readingHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  readingDate: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1F2937',
+  },
+  readingTime: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  readingValues: {
+    alignItems: 'flex-end',
+  },
+  readingHR: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  readingBP: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  tipCard: {
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  tipContent: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  tipTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  tipText: {
+    fontSize: 14,
+    color: '#6B7280',
+    lineHeight: 20,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    margin: 20,
+    padding: 24,
+    borderRadius: 16,
+    width: '90%',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  bpInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 24,
+  },
+  inputGroup: {
+    flex: 1,
+  },
+  inputLabel: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 8,
+  },
+  bpInput: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  bpSeparator: {
+    fontSize: 24,
+    color: '#6B7280',
+    marginHorizontal: 16,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  cancelButton: {
+    flex: 1,
+    backgroundColor: '#F3F4F6',
+    padding: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    color: '#6B7280',
+  },
+  saveButton: {
+    flex: 1,
+    backgroundColor: '#3B82F6',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 14,
+    borderRadius: 8,
+  },
+  saveButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '500',
+    marginLeft: 8,
+  },
+});
